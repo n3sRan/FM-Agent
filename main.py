@@ -13,6 +13,7 @@ from src.verification import _generate_all_bugs_validation_summary
 from src.extract import run_extraction, EXT_TO_LANG
 from src.generate_topdown_layers import generate_topdown_layers
 from src.spec_generation_and_verification import run_spec_generation_and_verification
+from src.spec_forms import get_spec_form
 from src.incremental_reasoner import run_incremental_pipeline
 from src.git import (
     frozen_worktree,
@@ -135,6 +136,9 @@ def run_pipeline(
     input_dir = os.path.join(work_dir, "extracted_functions")
     output_dir = os.path.join(work_dir, "logic_verification_results")
     script_dir = os.path.dirname(os.path.abspath(__file__))
+    # This refactor stage adds the internal SpecForm boundary without exposing
+    # profile selection yet, so the public pipeline remains fixed to software.
+    spec_form = get_spec_form("software")
     extra_call_edges = load_call_edges(extra_call_edges_path)
 
     # Clean files from the previous run — unless resuming, where we keep all
@@ -304,11 +308,11 @@ def run_pipeline(
                 proj_dir,
             )
 
-    # Copy system_prompt.md to spec_prompts/system_prompt.md
+    # Stage the selected form's prompt and the standalone batch-helper runtime.
     spec_prompts_dir = os.path.join(work_dir, "spec_prompts")
     os.makedirs(spec_prompts_dir, exist_ok=True)
     shutil.copy2(
-        os.path.join(script_dir, "md", "system_prompt.md"),
+        spec_form.system_prompt_path(script_dir),
         os.path.join(spec_prompts_dir, "system_prompt.md"),
     )
     shutil.copy2(
@@ -320,6 +324,9 @@ def run_pipeline(
         os.path.join(script_dir, "src", "file_utils.py"),
         os.path.join(spec_prompts_dir, "file_utils.py"),
     )
+    # generate_batch_prompts.py runs in a target-project subprocess, whose
+    # import path does not include this FM-Agent checkout. Copy the form package
+    # beside it so both source and standalone execution use the same contract.
     spec_forms_src = os.path.join(script_dir, "src", "spec_forms")
     spec_forms_dst = os.path.join(spec_prompts_dir, "spec_forms")
     os.makedirs(spec_forms_dst, exist_ok=True)
@@ -416,7 +423,7 @@ def run_pipeline(
                 proj_dir,
             )
 
-    # --- Stage 6: Execute spec generation workflow (per phase, per layer) ---
+    # --- Stage 6: Stream spec generation, reasoning, and candidate validation. ---
     if only_spec:
         print("[Pipeline] Stage 6/6: Generating specs (reasoning & bug validation disabled)...")
     else:
@@ -451,6 +458,7 @@ def run_pipeline(
             script_dir,
             spec_prompts_dir,
             phases_data,
+            spec_form=spec_form,
             resume=resume,
             extra_call_edges=extra_call_edges,
             only_spec=only_spec,

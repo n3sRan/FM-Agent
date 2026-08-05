@@ -1,4 +1,10 @@
-"""Stage 4 specification generation and verification orchestration."""
+"""Stage 6 streaming specification generation and verification orchestration.
+
+Specification generation, implementation reasoning, and candidate validation
+remain deliberately interleaved. ``SpecForm`` controls the generation artifact
+contract; it does not introduce a hard stage boundary or own downstream
+reasoning and validation.
+"""
 
 import config
 import concurrent.futures
@@ -12,20 +18,21 @@ import time
 
 from config import MAX_WORKERS, OPENCODE_MAX_RETRIES, OPENCODE_SPEC_MODEL
 from src.domain_knowledge import list_staged_domain_knowledge_relpaths
-from src.file_utils import _get_incomplete_verification_files, _get_phase_files, is_file_ready
+from src.file_utils import _get_incomplete_verification_files, _get_phase_files
 from src.generate_topdown_layers import generate_topdown_layers
 from src.llm_client import build_llm_cli_command
 from src.opencode_trace import function_id_from_extracted_path, run_opencode_traced
+from src.spec_forms import SpecForm
 from src.verification import streaming_reasoner
 
 
-def _get_pending_batches(batches, proj_dir):
-    """Return batches that still have at least one function without specs."""
+def _get_pending_batches(batches, proj_dir, spec_form: SpecForm):
+    """Return batches with at least one unit incomplete for ``spec_form``."""
     pending = []
     for batch in batches:
         for func_rel in batch.get("functions", []):
             full_path = os.path.join(proj_dir, func_rel)
-            if not is_file_ready(full_path):
+            if not spec_form.validate(full_path).ready:
                 pending.append(batch)
                 break
     return pending
@@ -39,9 +46,10 @@ def _run_spec_generation_batch(
     layer_idx,
     batch_rel_dir,
     batch_info,
+    spec_form: SpecForm,
 ):
-    # Run one batch end-to-end so the executor can refill slots as soon as a
-    # batch finishes, instead of waiting for a whole chunk barrier.
+    # Run one generation batch end-to-end so the executor can refill slots as
+    # soon as it finishes, instead of waiting for a whole chunk barrier.
     batch_file = batch_info["file"]
     batch_prompt_rel = os.path.join(batch_rel_dir, batch_file)
     function_files = batch_info.get("functions", [])
@@ -49,27 +57,7 @@ def _run_spec_generation_batch(
         function_id_from_extracted_path(func_rel)
         for func_rel in function_files
     ]
-    fm_reminder = ("IMPORTANT: fm_agent/ is your output workspace, not project source. "
-                    "Do NOT modify any existing project files.")
-    if attempt == 1:
-        prompt = (
-            f"Process the batch prompt file at {batch_prompt_rel}. "
-            f"Read it and fm_agent/spec_prompts/system_prompt.md, "
-            f"generate behavioral specs for each function listed, "
-            f"and write the .spec.json and .info.json files for each function. "
-            f"Do not modify the function source files. {fm_reminder}"
-        )
-    else:
-        prompt = (
-            f"Continue processing the batch prompt file at {batch_prompt_rel}. "
-            f"Some functions may already have valid specs from a previous attempt. "
-            f"Check each function listed in the batch prompt. Skip it only when both "
-            f"its .spec.json and .info.json files contain valid JSON matching the "
-            f"schemas in fm_agent/spec_prompts/system_prompt.md. If either sidecar "
-            f"is missing, malformed, or schema-invalid, rewrite the complete "
-            f".spec.json and .info.json files for that function. "
-            f"Do not modify the function source files. {fm_reminder}"
-        )
+    prompt = spec_form.generation_instruction(batch_prompt_rel, attempt)
     prompt_file = os.path.join(proj_dir, "fm_agent", "workflow_spec_step4_batch.md")
     command = build_llm_cli_command(
         model=OPENCODE_SPEC_MODEL,
@@ -90,13 +78,7 @@ def _run_spec_generation_batch(
                 "fm_agent/spec_prompts/system_prompt.md",
                 *list_staged_domain_knowledge_relpaths(work_dir),
             ],
-            output_files=[
-                f"{function_file}.spec.json"
-                for function_file in function_files
-            ] + [
-                f"{function_file}.info.json"
-                for function_file in function_files
-            ],
+            output_files=spec_form.trace_outputs(function_files),
             summary=f"OpenCode spec generation for {batch_file}",
             metadata={
                 "attempt": attempt,
@@ -112,11 +94,18 @@ def _run_spec_generation_batch(
 
 def run_spec_generation_and_verification(
     proj_dir, work_dir, input_dir, output_dir, script_dir, spec_prompts_dir,
-    phases_data, resume=False, extra_call_edges=None, only_spec=False,
-    bug_validator_path=None, all_bugs=False,
+    phases_data, spec_form: SpecForm, resume=False, extra_call_edges=None,
+    only_spec=False, bug_validator_path=None, all_bugs=False,
 ):
-    # --- Stage 4: Execute spec generation workflow (per phase, per layer) ---
-    batch_md_src = os.path.join(script_dir, "md", "workflow_spec_step4_batch.md")
+    """Run the existing phase/layer stream using one artifact contract.
+
+    This remains a single Stage 6 orchestrator: ready software specs can flow
+    into reasoning while other generation futures are still running, and
+    mismatches can flow into candidate validation. ``spec_form`` changes only
+    how generation inputs and outputs are interpreted.
+    """
+    # --- Stage 6: Execute the streaming workflow (per phase, per layer). ---
+    batch_md_src = spec_form.workflow_prompt_path(script_dir)
     batch_md_dst = os.path.join(work_dir, "workflow_spec_step4_batch.md")
     shutil.copy2(batch_md_src, batch_md_dst)
 
@@ -154,7 +143,8 @@ def run_spec_generation_and_verification(
             # Generate batch prompts for this layer. On resume, skip functions
             # that were already specced in a previous run.
             batch_cmd = ["python3", "fm_agent/spec_prompts/generate_batch_prompts.py",
-                         "--phase", str(phase_num), "--layers", str(layer_idx)]
+                         "--phase", str(phase_num), "--layers", str(layer_idx),
+                         "--spec-form", spec_form.id]
             if resume:
                 batch_cmd.append("--resume")
             subprocess.run(batch_cmd, cwd=proj_dir, check=True)
@@ -182,7 +172,11 @@ def run_spec_generation_and_verification(
 
             for attempt in range(1, OPENCODE_MAX_RETRIES + 1):
                 # Find batches with unspecced functions
-                pending_batches = _get_pending_batches(all_batches, proj_dir)
+                pending_batches = _get_pending_batches(
+                    all_batches,
+                    proj_dir,
+                    spec_form,
+                )
                 if not pending_batches:
                     # All functions in this layer are specced. In only-spec mode
                     # we stop here without running the reasoner/bug validation.
@@ -238,6 +232,7 @@ def run_spec_generation_and_verification(
                                 layer_idx,
                                 batch_rel_dir,
                                 batch_info,
+                                spec_form,
                             )
                         )
 
@@ -267,9 +262,13 @@ def run_spec_generation_and_verification(
                 # Check if any files in this layer received specs
                 specs_generated = sum(
                     1 for rel in layer_files
-                    if is_file_ready(os.path.join(input_dir, rel))
+                    if spec_form.validate(os.path.join(input_dir, rel)).ready
                 )
-                if specs_generated > 0 and not _get_pending_batches(all_batches, proj_dir):
+                if specs_generated > 0 and not _get_pending_batches(
+                    all_batches,
+                    proj_dir,
+                    spec_form,
+                ):
                     break
 
                 if specs_generated > 0:

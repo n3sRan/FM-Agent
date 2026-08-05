@@ -1,4 +1,4 @@
-"""Generate per-layer spec batch prompts from topdown layer metadata."""
+"""Generate form-driven per-layer batch prompts from top-down metadata."""
 
 import argparse
 import json
