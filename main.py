@@ -315,11 +315,20 @@ def run_pipeline(
         os.path.join(script_dir, "src", "generate_batch_prompts.py"),
         os.path.join(spec_prompts_dir, "generate_batch_prompts.py"),
     )
-    # generate_batch_prompts.py imports is_file_ready from this module at runtime.
+    # Keep the legacy helper beside the batch script for direct compatibility.
     shutil.copy2(
         os.path.join(script_dir, "src", "file_utils.py"),
         os.path.join(spec_prompts_dir, "file_utils.py"),
     )
+    spec_forms_src = os.path.join(script_dir, "src", "spec_forms")
+    spec_forms_dst = os.path.join(spec_prompts_dir, "spec_forms")
+    os.makedirs(spec_forms_dst, exist_ok=True)
+    for filename in os.listdir(spec_forms_src):
+        if filename.endswith(".py"):
+            shutil.copy2(
+                os.path.join(spec_forms_src, filename),
+                os.path.join(spec_forms_dst, filename),
+            )
 
     phases_path = os.path.join(work_dir, "phases.json")
     with open(phases_path, "r") as f:
