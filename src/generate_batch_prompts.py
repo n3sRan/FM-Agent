@@ -3,18 +3,17 @@
 import argparse
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 try:
     # When imported as part of the src package (e.g. incremental_reasoner).
-    from .file_utils import is_file_ready
     from .domain_knowledge import list_staged_domain_knowledge_relpaths
     from .specification import BatchPromptContext, SOFTWARE_PROFILE, SpecificationProfile
 except ImportError:
-    # When run directly from the source tree, file_utils.py sits beside this script.
-    from file_utils import is_file_ready
+    # When run directly from the source tree, package modules sit beside this script.
     from specification import BatchPromptContext, SOFTWARE_PROFILE, SpecificationProfile
 
     def list_staged_domain_knowledge_relpaths(work_dir, prefix="fm_agent"):
@@ -103,7 +102,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--resume",
         action="store_true",
-        help="Skip units already specced (file_utils.is_file_ready) when building batches",
+        help="Skip units whose active Profile artifacts are ready when building batches",
     )
     return parser.parse_args()
 
@@ -660,6 +659,62 @@ def _artifact_eligible(function: dict) -> bool:
     return function.get("artifact_eligible", True) is not False
 
 
+def expected_dependencies_for_unit(function: dict) -> tuple[str, ...]:
+    """Return normalized direct dependencies from one top-down unit."""
+    raw_dependencies = function.get("all_callees", ())
+    if not isinstance(raw_dependencies, (list, tuple, set)):
+        return ()
+    return tuple(sorted({
+        dependency
+        for dependency in raw_dependencies
+        if isinstance(dependency, str) and dependency
+    }))
+
+
+def _canonical_path(path) -> str:
+    """Return a stable absolute key for top-down and artifact paths."""
+    return os.path.normcase(os.path.realpath(os.fspath(path)))
+
+
+def build_expected_dependencies_by_file(
+    layers_data: dict,
+    work_dir: Path,
+) -> dict[str, tuple[str, ...]]:
+    """Build extracted-unit path -> merged direct dependencies."""
+    work_dir = Path(work_dir)
+    work_prefix = f"{work_dir.name}/"
+    expected_by_file: dict[str, tuple[str, ...]] = {}
+    for layer in layers_data.get("layers", []):
+        if not isinstance(layer, dict):
+            continue
+        for unit in layer.get("functions", []):
+            if not isinstance(unit, dict):
+                continue
+            relative_file = unit.get("file")
+            if not isinstance(relative_file, str) or not relative_file:
+                continue
+            relative_file = relative_file.replace("\\", "/")
+            if relative_file.startswith(work_prefix):
+                relative_file = relative_file[len(work_prefix):]
+            unit_path = Path(relative_file)
+            if not unit_path.is_absolute():
+                unit_path = work_dir / unit_path
+
+            dependencies = set(expected_dependencies_for_unit(unit))
+            path_key = _canonical_path(unit_path)
+            dependencies.update(expected_by_file.get(path_key, ()))
+            expected_by_file[path_key] = tuple(sorted(dependencies))
+    return expected_by_file
+
+
+def expected_dependencies_for_file(
+    file_path: Path,
+    expected_dependencies_by_file: dict[str, tuple[str, ...]],
+) -> tuple[str, ...]:
+    """Return merged direct dependencies for one extracted unit path."""
+    return expected_dependencies_by_file.get(_canonical_path(file_path), ())
+
+
 def read_json(path: Path) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"missing required file: {path}")
@@ -881,6 +936,7 @@ def generate_batch_prompts(
     topdown_path = work_dir / "spec_prompts" / f"phase_{phase:02d}_topdown_layers.json"
     topdown = read_json(topdown_path)
     layers = topdown.get("layers", [])
+    expected_dependencies_by_file = build_expected_dependencies_by_file(topdown, work_dir)
     total_layers = len(layers)
     start_layer, end_layer = parse_layers_spec(layers_spec)
     if start_layer < 0 or end_layer >= total_layers:
@@ -931,7 +987,13 @@ def generate_batch_prompts(
                 prompt_funcs = [
                     fn
                     for fn in fn_batch
-                    if not is_file_ready(work_dir / fn["file"], specification)
+                    if not specification.validate(
+                        work_dir / fn["file"],
+                        expected_dependencies=expected_dependencies_for_file(
+                            work_dir / fn["file"],
+                            expected_dependencies_by_file,
+                        ),
+                    ).ready
                 ]
                 skipped_functions += len(fn_batch) - len(prompt_funcs)
             out_path = output_dir / filename
