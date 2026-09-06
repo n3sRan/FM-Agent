@@ -3,7 +3,12 @@ import os
 import re
 from pathlib import Path
 
-from .languages.hardware import is_excluded_source_directory
+try:
+    from .languages.hardware import is_excluded_source_directory
+except ImportError:
+    # Keep helpers importable when an existing source-tree CLI is executed
+    # directly, for example ``python src/generate_batch_prompts.py``.
+    from languages.hardware import is_excluded_source_directory
 
 
 _METADATA_SIDECAR_SUFFIXES = (".spec.json", ".info.json")
