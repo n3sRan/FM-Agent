@@ -737,12 +737,44 @@ def _signature_end(masked_lines: list[str], start_line: int) -> int:
     return len(masked_lines) - 1
 
 
+def _indentation_width(line: str) -> int:
+    """Return the visual width of a line's leading Scala indentation."""
+    prefix = line[:len(line) - len(line.lstrip(" \t"))]
+    return len(prefix.expandtabs())
+
+
+def _indented_body_end(
+    masked_lines: list[str],
+    start_line: int,
+    signature_end: int,
+) -> int:
+    """Return the end of a Scala 3 significant-indentation declaration."""
+    declaration_indent = _indentation_width(masked_lines[start_line])
+    end_line = signature_end
+    body_started = False
+
+    for line_index in range(signature_end + 1, len(masked_lines)):
+        line = masked_lines[line_index]
+        if not line.strip():
+            if body_started:
+                end_line = line_index
+            continue
+        if _indentation_width(line) <= declaration_indent:
+            break
+        body_started = True
+        end_line = line_index
+
+    return end_line
+
+
 def _declaration_end(masked_lines: list[str], start_line: int) -> int:
     signature_end = _signature_end(masked_lines, start_line)
     signature = " ".join(masked_lines[start_line:signature_end + 1])
-    if "{" not in signature:
-        return signature_end
-    return _matching_block_end(masked_lines, start_line)
+    if "{" in signature:
+        return _matching_block_end(masked_lines, start_line)
+    if signature.rstrip().endswith(":"):
+        return _indented_body_end(masked_lines, start_line, signature_end)
+    return signature_end
 
 
 def _parent_reference_from_signature(
