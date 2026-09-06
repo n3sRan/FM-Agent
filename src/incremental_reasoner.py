@@ -45,8 +45,8 @@ from .file_utils import (
     _is_valid_spec_json,
     _is_valid_info_json,
 )
+from .dependency_matching import extract_callee_spec_from_info
 from .generate_batch_prompts import (
-    extract_callee_spec_from_info,
     extract_info_block,
     extract_spec_block,
 )

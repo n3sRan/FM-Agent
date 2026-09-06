@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Callable, Optional, Protocol, Sequence, runtime_checkable
 
 try:
+    from src.dependency_matching import extract_callee_spec_from_info
     from src.file_utils import _is_valid_info_json, _is_valid_spec_json
 except ImportError:  # pragma: no cover - direct execution from ``src``
+    from dependency_matching import extract_callee_spec_from_info
     from file_utils import _is_valid_info_json, _is_valid_spec_json
 
 
@@ -284,35 +286,6 @@ def _software_self_spec_reader(unit_file: Path) -> Optional[str]:
     )
 
 
-def _callee_match_names(
-    callee_fqn: str,
-    aliases: Sequence[str],
-) -> list[str]:
-    aliases = aliases or ()
-    names = [callee_fqn, callee_fqn.split("::")[-1]]
-    for alias in aliases:
-        if not alias:
-            continue
-        names.append(alias)
-        if "::" in alias:
-            names.append(alias.rsplit("::", 1)[-1])
-    return list(dict.fromkeys(names))
-
-
-def _info_line_mentions_name(first_line: str, name: str) -> bool:
-    if not name:
-        return False
-    if "::" in name:
-        return name in first_line
-    # Keep the existing software matching behavior: a bare name may be
-    # followed by a call parenthesis or a word boundary.
-    import re
-
-    return bool(
-        re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?:\s*\(|\b)", first_line)
-    )
-
-
 def _software_dependency_reader(
     caller_file: Path,
     callee_fqn: str,
@@ -322,21 +295,14 @@ def _software_dependency_reader(
     info = _read_json(paths.dependency_info)
     if not isinstance(info, dict):
         return None
-    candidates = set(_callee_match_names(callee_fqn, aliases or ()))
-    for callee in info.get("callees", []):
-        if not isinstance(callee, dict):
-            continue
-        name = callee.get("name", "")
-        if not isinstance(name, str):
-            continue
-        if not any(_info_line_mentions_name(name, candidate) for candidate in candidates):
-            continue
-        return (
-            f"{callee.get('signature', '')}\n"
-            f"  Pre-condition: {callee.get('pre_condition', '')}\n"
-            f"  Post-condition: {callee.get('post_condition', '')}"
-        )
-    return None
+    callee = extract_callee_spec_from_info(info, callee_fqn, aliases)
+    if callee is None:
+        return None
+    return (
+        f"{callee.get('signature', '')}\n"
+        f"  Pre-condition: {callee.get('pre_condition', '')}\n"
+        f"  Post-condition: {callee.get('post_condition', '')}"
+    )
 
 
 @dataclass(frozen=True)
