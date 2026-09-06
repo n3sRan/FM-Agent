@@ -618,12 +618,19 @@ def render_preflight(state):
         f"[green]{scope.get('included_file_count', 0)} included[/] / "
         f"[dim]{scope.get('excluded_file_count', 0)} excluded[/]",
     )
+    uncounted_count = len(scope.get("function_count_uncounted_files") or [])
     function_suffix = " [dim](local estimate)[/]" if scope.get(
         "function_count_is_estimate"
     ) else ""
+    function_summary = f"[bold]~{scope.get('function_count', 0)}[/]"
+    if uncounted_count:
+        function_summary += (
+            f" [yellow]+ {uncounted_count} source file(s) requiring "
+            "semantic extraction[/]"
+        )
     scope_table.add_row(
         "functions",
-        f"[bold]~{scope.get('function_count', 0)}[/]{function_suffix}",
+        f"{function_summary}{function_suffix}",
     )
     stage_labels = [
         f"{stage.get('number')}. {stage.get('name')} ({stage.get('kind')})"

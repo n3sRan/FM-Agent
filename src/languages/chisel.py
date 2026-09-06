@@ -52,7 +52,7 @@ _CONTEXT_DECLARATION_KINDS = frozenset({
 _MODIFIER = (
     r"(?:"
     r"(?:private|protected)(?:\[[\w.]+\])?"
-    r"|final|sealed|abstract|implicit|lazy|override|case"
+    r"|final|sealed|abstract|implicit|lazy|override|case|open"
     r")"
 )
 _DECLARATION_RE = re.compile(

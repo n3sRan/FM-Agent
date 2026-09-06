@@ -29,7 +29,7 @@ from src.languages.hardware import (
 _VERIBLE_DISABLE_ENV = "FM_AGENT_NO_VERIBLE"
 _VERIBLE_TIMEOUT_SECONDS = 120
 _MODULE_OPEN_RE = re.compile(
-    r"\bmodule\s+(?:(?:automatic|static)\s+)?"
+    r"\b(?:module|macromodule)\s+(?:(?:automatic|static)\s+)?"
     r"(?P<name>[A-Za-z_][A-Za-z0-9_$]*)"
 )
 _ENDMODULE_RE = re.compile(r"\bendmodule\b")

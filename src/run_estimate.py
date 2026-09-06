@@ -10,7 +10,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .extract import EXT_TO_LANG, extract_functions_from_file
+from .extract import EXT_TO_LANG, LANG_CONFIG, extract_functions_from_file
 from .file_utils import (
     _is_test_file,
     _is_under_submodules,
@@ -124,16 +124,17 @@ def _count_functions(proj_dir: str, files: Iterable[str]) -> tuple[int, list[str
         language = EXT_TO_LANG.get(ext)
         if not language:
             continue
+        if LANG_CONFIG[language]["body"] == "external":
+            # Semantic-only languages have no reliable fast file-local
+            # fallback. Counting them as zero would make a non-empty hardware
+            # or Erlang project look empty and distort history scaling.
+            uncounted.append(rel_path)
+            continue
         try:
             functions = extract_functions_from_file(
                 os.path.join(proj_dir, rel_path), language
             )
         except OSError:
-            uncounted.append(rel_path)
-            continue
-        if language == "erlang" and not functions:
-            # Erlang extraction is semantic/ELP-only. The fast preflight does not
-            # start ELP, so make the incomplete count explicit in the manifest.
             uncounted.append(rel_path)
             continue
         total += len(functions)
@@ -480,7 +481,10 @@ def collect_history_samples(proj_dir: str, work_dir: str | Path) -> list[dict]:
 def _scale_factor(target_scope: dict, sample: dict) -> float:
     target_functions = int(target_scope.get("function_count") or 0)
     sample_functions = int(sample.get("function_count") or 0)
-    if target_functions > 0 and sample_functions > 0:
+    target_count_is_complete = not target_scope.get(
+        "function_count_uncounted_files"
+    )
+    if target_count_is_complete and target_functions > 0 and sample_functions > 0:
         return max(0.1, min(10.0, target_functions / sample_functions))
     target_files = int(target_scope.get("included_file_count") or 0)
     sample_files = int(sample.get("included_file_count") or 0)

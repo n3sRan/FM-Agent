@@ -69,6 +69,7 @@ def _clean_previous_run(work_dir):
 def _print_preflight_summary(estimate, output_path):
     scope = estimate["scope"]
     prediction = estimate["estimate"]
+    uncounted_files = scope.get("function_count_uncounted_files") or []
     included = ", ".join(scope["included_directories"]) or "(none)"
     excluded = ", ".join(
         item["path"] for item in scope["excluded_directories"][:8]
@@ -78,11 +79,17 @@ def _print_preflight_summary(estimate, output_path):
     print("[Estimate] ESTIMATE — no LLM calls were made.")
     print(f"[Estimate] Included directories: {included}")
     print(f"[Estimate] Excluded directories: {excluded}")
+    function_summary = f"~{scope['function_count']} function(s)"
+    if uncounted_files:
+        function_summary = (
+            f"~{scope['function_count']} locally counted function(s), "
+            f"{len(uncounted_files)} source file(s) require semantic extraction"
+        )
     print(
         "[Estimate] "
         f"{scope['included_file_count']} included source file(s), "
         f"{scope['excluded_file_count']} excluded source file(s), "
-        f"~{scope['function_count']} function(s)."
+        f"{function_summary}."
     )
     print(
         "[Estimate] Historical samples: "
