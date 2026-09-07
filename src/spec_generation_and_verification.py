@@ -49,6 +49,26 @@ def _get_pending_batches(batches, proj_dir, specification: SpecificationProfile 
     return pending
 
 
+def _count_ready_files(
+    layer_files,
+    input_dir,
+    specification: SpecificationProfile = SOFTWARE_PROFILE,
+    expected_dependencies_by_file=None,
+):
+    """Return the number of files whose active Profile artifacts are valid."""
+    return sum(
+        1
+        for rel in layer_files
+        if specification.validate(
+            Path(input_dir) / rel,
+            expected_dependencies_for_file(
+                Path(input_dir) / rel,
+                expected_dependencies_by_file or {},
+            ),
+        ).ready
+    )
+
+
 def _run_spec_generation_batch(
     proj_dir,
     work_dir,
@@ -250,6 +270,7 @@ def run_spec_generation_and_verification(
                             )
                             layer_processed.update(newly_processed)
                     break
+                ready_before = _count_ready_files(layer_files, input_dir, specification, expected_dependencies_by_file)
 
                 # Submit all pending spec batches through a bounded executor so
                 # finished slots can immediately pick up the next batch.
@@ -305,45 +326,45 @@ def run_spec_generation_and_verification(
                         except Exception as exc:
                             logging.error(f"Spec generation task failed unexpectedly: {exc}")
 
-                # Check if any files in this layer received specs
-                specs_generated = sum(
-                    1 for rel in layer_files
-                    if specification.validate(
-                        Path(input_dir) / rel,
-                        expected_dependencies_for_file(Path(input_dir) / rel, expected_dependencies_by_file)
-                    ).ready
-                )
-                if specs_generated > 0 and not _get_pending_batches(all_batches, proj_dir, specification, expected_dependencies_by_file):
+                ready_after = _count_ready_files(layer_files, input_dir, specification, expected_dependencies_by_file)
+                remaining_batches = _get_pending_batches(all_batches, proj_dir, specification, expected_dependencies_by_file)
+                if not remaining_batches:
                     break
 
-                if specs_generated > 0:
+                if attempt == OPENCODE_MAX_RETRIES:
+                    print(
+                        f"[Pipeline] ERROR: Stage 6 Phase {phase_num} "
+                        f"Layer {layer_idx} still has invalid or missing "
+                        f"specification artifacts after {OPENCODE_MAX_RETRIES} "
+                        "attempts. "
+                        f"Check {os.path.basename(proj_dir)}/fm_agent/trace/ "
+                        "for details."
+                    )
+                    sys.exit(1)
+
+                newly_ready = max(0, ready_after - ready_before)
+                if newly_ready > 0:
                     # Partial progress — retry remaining batches without delay
                     logging.info(
                         f"Phase {phase_num} Layer {layer_idx} attempt {attempt}: "
-                        f"{specs_generated} specs generated, retrying remaining batches"
+                        f"{newly_ready} additional spec(s) became ready; "
+                        f"retrying {len(remaining_batches)} remaining batch(es)"
                     )
                     continue
 
-                if attempt < OPENCODE_MAX_RETRIES:
-                    delay = 10
-                    print(
-                        f"[Pipeline] Stage 6 Phase {phase_num} Layer {layer_idx} produced no specs "
-                        f"(attempt {attempt}/{OPENCODE_MAX_RETRIES}). "
-                        f"Retrying in {delay}s..."
-                    )
-                    logging.warning(
-                        f"Stage 6 Phase {phase_num} Layer {layer_idx} attempt {attempt} failed: "
-                        f"no specs generated. Retrying in {delay}s."
-                    )
-                    time.sleep(delay)
-                else:
-                    print(
-                        f"[Pipeline] ERROR: Stage 6 Phase {phase_num} Layer {layer_idx} failed "
-                        f"after {OPENCODE_MAX_RETRIES} attempts. "
-                        f"No specs were generated. "
-                        f"Check {os.path.basename(proj_dir)}/fm_agent/trace/ for details."
-                    )
-                    sys.exit(1)
+                delay = 10
+                print(
+                    f"[Pipeline] Stage 6 Phase {phase_num} Layer {layer_idx} "
+                    f"made no new specification progress "
+                    f"(attempt {attempt}/{OPENCODE_MAX_RETRIES}). "
+                    f"Retrying in {delay}s..."
+                )
+                logging.warning(
+                    f"Stage 6 Phase {phase_num} Layer {layer_idx} attempt "
+                    f"{attempt} made no new specification progress. "
+                    f"Retrying in {delay}s."
+                )
+                time.sleep(delay)
 
         # Mark all files from this phase as processed for subsequent phases
         for rel in phase_files:

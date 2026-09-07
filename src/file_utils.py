@@ -178,10 +178,7 @@ _TEST_FILE_PATTERNS = [
     re.compile(r'^.*_(?:SUITE|tests?)\.erl$'),  # Erlang: Common Test / EUnit
 ]
 
-_CHISEL_TEST_FILE_PATTERN = re.compile(
-    r"^.*(?:Spec|Test|Tester)\.(?:scala|sc)$",
-    re.IGNORECASE,
-)
+_CHISEL_TEST_STEM_PATTERN = re.compile(r"^.*(?:Spec|Test|Tester)$")
 _VERILOG_TEST_FILE_PATTERN = re.compile(
     r"^(?:tb_.+|testbench(?:_.+)?|.+_(?:tb|test|testbench))"
     r"\.(?:v|sv|svh)$",
@@ -547,7 +544,7 @@ def _is_test_file(rel_path):
         )
         if in_main_source_tree:
             return False
-        return bool(_CHISEL_TEST_FILE_PATTERN.match(parts[-1]))
+        return bool(_CHISEL_TEST_STEM_PATTERN.fullmatch(Path(parts[-1]).stem))
     if extension in {".v", ".sv", ".svh"}:
         if any(
             part.lower() in _VERILOG_TEST_DIR_NAMES
