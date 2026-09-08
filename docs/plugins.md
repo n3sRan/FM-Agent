@@ -143,47 +143,6 @@ already registered languages and cannot add a parser. Profiles and Stage Hooks
 may be mixed without extra conflict diagnostics; custom Profiles do not enable
 software reasoning or provide correctness guarantees.
 
-## Built-in chip plugin
-
-The built-in `chip` plugin selects one hardware Profile during `configure` and
-uses the common Stage 1–6 Pipeline. Its manifest adds a Stage 6 modify Hook for
-Chisel artifact eligibility and explicitly rejects options whose current
-semantics are not defined for chip.
-
-```bash
-uv run python main.py <proj_dir> --plugin chip
-```
-
-The Profile is selected from the source scope used by the run:
-
-| Dialect | Extensions | Profile |
-| --- | --- | --- |
-| Chisel | `.scala`, `.sc` | `chip-chisel` |
-| Verilog/SystemVerilog | `.v`, `.sv`, `.svh` | `chip-verilog` |
-
-Chisel wins when both dialects are present, with a warning; otherwise Verilog
-is selected when its extensions are in scope. Use a narrower `proj_dir` or
-`--submodule` scope for a hardware subtree.
-
-Chisel uses source analysis by default and optionally CIRCT via
-`FM_AGENT_CHISEL_CIRCT_INPUT`; Verilog prefers `verible-verilog-syntax` and
-otherwise uses its source fallback. See
-[`tools/chisel-circt/README.md`](../tools/chisel-circt/README.md) for setup.
-
-Each extracted module produces sibling `<Module>_spec.md` and
-`<Module>_info.md` artifacts under `fm_agent/extracted_functions/`. The first
-contains the FG/FC/CK tree and `<FG-API>`; the second contains direct-submodule
-expectations. Missing known dependency coverage is advisory for Chisel and
-blocking for Verilog. Chip Profiles disable software reasoning and bug
-validation.
-
-Chip follows the common option contract for `--resume`/`FM_AGENT_RESUME=1`,
-`--submodule`, `--one-phase`, `--domain-knowledge`/`--knowledge`, `--extra-edge`,
-fresh `--isolate` runs, and `--only-spec`; resume uses the same best-effort
-semantics as the software pipeline. Its manifest explicitly rejects
-`--incremental`, `--end-func`, `--all-bugs`, `--bug-validator`, and `--estimate`;
-these options fail before any workspace or LLM side effect.
-
 ## Execution modes
 
 ### Pass
@@ -341,6 +300,27 @@ bug validation. The Stage 6 output hook publishes successful results. If a
 later stage fails, the CLI copies available partial results back and removes the
 run copy. If entry selection itself fails, the previous `fm_agent/` directory is
 left unchanged. Only `fm_agent/` is copied back; trimmed sources are discarded.
+
+## Built-in chip plugin
+
+The built-in `chip` plugin selects one hardware Profile during `configure` and
+uses the common Stage 1–6 Pipeline. Its manifest adds a Stage 6 modify Hook for
+Chisel artifact eligibility and explicitly rejects options whose current
+semantics are not defined for chip.
+
+```bash
+uv run python main.py <proj_dir> --plugin chip
+```
+
+The plugin registers either the `chip-chisel` or `chip-verilog` Profile from
+the selected source scope. Its Profiles own the hardware prompts, paired
+Markdown artifacts, readers, and validation policy while the public Pipeline
+retains orchestration and LLM execution. The Stage 6 input Hook marks Chisel
+declarations as artifact-producing modules or context-only declarations without
+removing them from the dependency graph.
+
+For installation, backend selection, commands, outputs, supported options, and
+known limitations, see the [chip plugin guide](../plugins/chip/README.md).
 
 ## Validation and trust boundary
 

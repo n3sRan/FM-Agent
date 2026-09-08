@@ -132,40 +132,6 @@ def configure(proj_dir: str) -> None:
 只能筛选已注册语言，不能新增 parser。Profile 与 Stage Hook 可混用且不额外做冲突检测；
 自定义 Profile 不启用 software reasoning，也不提供正确性保障。
 
-## 内置 chip 插件
-
-内置 `chip` 插件在 `configure` 中选择一个硬件 Profile，随后使用公共 Stage 1–6
-Pipeline。它的 manifest 额外声明 Stage 6 modify Hook，用于 Chisel 产物 eligibility， 并显式拒绝当前对 chip 尚未定义语义的选项。
-
-```bash
-uv run python main.py <proj_dir> --plugin chip
-```
-
-插件根据本次运行的 source scope 选择 Profile：
-
-| 方言 | 扩展名 | Profile |
-| --- | --- | --- |
-| Chisel | `.scala`、`.sc` | `chip-chisel` |
-| Verilog/SystemVerilog | `.v`、`.sv`、`.svh` | `chip-verilog` |
-
-两类方言同时存在时优先选择 Chisel 并输出 warning；否则在范围内存在 Verilog 扩展名时
-选择 Verilog。若仓库包含无关硬件代码，请使用更窄的 `proj_dir` 或 `--submodule`。
-
-Chisel 默认使用源码分析，也可通过 `FM_AGENT_CHISEL_CIRCT_INPUT` 使用 CIRCT；Verilog
-优先使用 `verible-verilog-syntax`，否则使用源码 fallback。工具配置见
-[`tools/chisel-circt/README.md`](../tools/chisel-circt/README.md)。
-
-每个提取出的 module 会在 `fm_agent/extracted_functions/` 下生成相邻的
-`<Module>_spec.md` 和 `<Module>_info.md`。前者包含 FG/FC/CK 树和 `<FG-API>`，后者记录
-直接 submodule 的要求。已知依赖 coverage 缺失时，Chisel 是 advisory，Verilog 会阻塞
-通过。chip Profile 不启用 software reasoning 和 Bug Validation。
-
-chip 对 `--resume`/`FM_AGENT_RESUME=1`、`--submodule`、`--one-phase`、
-`--domain-knowledge`/`--knowledge`、`--extra-edge`、fresh `--isolate` 和
-`--only-spec` 沿用公共选项契约；resume 与 software pipeline 使用同样的尽力而为语义。
-其 manifest 显式拒绝 `--incremental`、`--end-func`、`--all-bugs`、
-`--bug-validator` 和 `--estimate`，这些选项会在产生 workspace 或调用 LLM 之前失败。
-
 ## 执行模式
 
 ### Pass
@@ -314,6 +280,24 @@ entry 插件上下文包含：
 Hook 发布正常结果；若后续 Stage 失败，CLI 会复制已有的部分结果并删除 run copy。
 如果 entry 选择本身失败，则保留原有 `fm_agent/`。只会复制回 `fm_agent/`，裁剪后
 的源码会随 run copy 一起丢弃。
+
+## 内置 chip 插件
+
+内置 `chip` 插件在 `configure` 中选择一个硬件 Profile，随后使用公共 Stage 1–6
+Pipeline。它的 manifest 额外声明 Stage 6 modify Hook，用于 Chisel 产物 eligibility，并
+显式拒绝当前对 chip 尚未定义语义的选项。
+
+```bash
+uv run python main.py <proj_dir> --plugin chip
+```
+
+插件根据选定源码范围注册 `chip-chisel` 或 `chip-verilog` Profile。硬件 prompt、成对的
+Markdown 产物、reader 和 validation policy 由 Profile 提供，公共 Pipeline 继续负责阶段
+编排与 LLM 执行。Stage 6 input Hook 将 Chisel 声明标记为需要生成产物的 module 或仅作
+上下文的声明，但不会将后者从依赖图删除。
+
+安装方式、backend 选择、运行命令、输出、支持的选项和已知限制见
+[chip 插件指南](../plugins/chip/README_zh.md)。
 
 ## 验证与信任边界
 
