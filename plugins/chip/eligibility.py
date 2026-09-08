@@ -21,7 +21,7 @@ from src.languages.chisel import (
     chisel_defines_io,
     extracted_module_classifications,
 )
-from src.languages.hardware import CHISEL_EXTENSIONS
+from src.languages.hardware import CHISEL_EXTENSIONS, resolve_hardware_project_paths
 
 
 ELIGIBILITY_SCHEMA_VERSION = 2
@@ -32,12 +32,11 @@ EXTRACTED_ARTIFACT_SUFFIXES = ("_spec.md", "_info.md")
 
 
 def _project_root(proj_dir: str | os.PathLike[str]) -> Path:
-    root = Path(os.path.abspath(os.fspath(proj_dir)))
-    return root.parent if root.name == "fm_agent" else root
+    return resolve_hardware_project_paths(proj_dir)[0]
 
 
 def _work_dir(proj_dir: str | os.PathLike[str]) -> Path:
-    return _project_root(proj_dir) / "fm_agent"
+    return resolve_hardware_project_paths(proj_dir)[1]
 
 
 def _read_json(path: Path) -> dict[str, Any]:

@@ -23,6 +23,7 @@ from src.languages.codegraph import canonicalize
 from src.languages.hardware import (
     VERILOG_EXTENSIONS,
     is_excluded_source_directory,
+    resolve_hardware_project_paths,
 )
 
 
@@ -63,13 +64,11 @@ class VerilogAnalysis:
 
 
 def _project_root(proj_dir: str | Path) -> Path:
-    root = Path(os.path.abspath(proj_dir))
-    return root.parent if root.name == "fm_agent" else root
+    return resolve_hardware_project_paths(proj_dir)[0]
 
 
 def _work_dir(proj_dir: str | Path) -> Path:
-    root = Path(os.path.abspath(proj_dir))
-    return root if root.name == "fm_agent" else root / "fm_agent"
+    return resolve_hardware_project_paths(proj_dir)[1]
 
 
 def _iter_verilog_files(proj_dir: str | Path):

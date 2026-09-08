@@ -13,6 +13,15 @@ except ImportError:
 
 _METADATA_SIDECAR_SUFFIXES = (".spec.json", ".info.json")
 
+_GENERIC_SOURCE_SCAN_EXCLUDED_DIRECTORY_NAMES = frozenset({
+    "node_modules",
+    "__pycache__",
+    "venv",
+    ".venv",
+    "fm_agent",
+})
+_HARDWARE_LANGUAGE_KEYS = frozenset({"chisel", "verilog"})
+
 _SPEC_FIELDS = {
     "signature",
     "pre_condition",
@@ -487,6 +496,24 @@ def _is_under_submodules(rel_path, submodules):
     return any(norm == sub or norm.startswith(sub + "/") for sub in submodules)
 
 
+def _uses_hardware_source_scan(specification):
+    """Return whether the active Profile is limited to hardware languages."""
+    if specification is None or specification.languages is None:
+        return False
+    languages = set(specification.languages)
+    return bool(languages) and languages <= _HARDWARE_LANGUAGE_KEYS
+
+
+def _is_excluded_project_source_directory(name, specification=None):
+    """Apply expanded pruning only to an explicitly hardware-only scan."""
+    if _uses_hardware_source_scan(specification):
+        return is_excluded_source_directory(name)
+    return (
+        name.startswith(".")
+        or name in _GENERIC_SOURCE_SCAN_EXCLUDED_DIRECTORY_NAMES
+    )
+
+
 def _iter_project_source_files(proj_dir, submodules=None, specification=None):
     """Yield project-relative source file paths, optionally limited to submodules."""
     from src.extract import EXT_TO_LANG  # local import to avoid circular import
@@ -507,7 +534,11 @@ def _iter_project_source_files(proj_dir, submodules=None, specification=None):
     for scan_root in scan_roots:
         for root, dirs, files in os.walk(scan_root):
             # Skip hidden dirs and common non-source dirs
-            dirs[:] = [d for d in dirs if not is_excluded_source_directory(d)]
+            dirs[:] = [
+                directory
+                for directory in dirs
+                if not _is_excluded_project_source_directory(directory, specification)
+            ]
             for fname in files:
                 ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
                 if ext not in source_exts:
