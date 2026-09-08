@@ -53,15 +53,7 @@ class HardwarePromptContract:
                 "without inventing unsupported cases.",
             )
             if self.dialect == "chisel"
-            else
-            (
-                "Treat macros, packages, parameters, generate conditions, and "
-                "preprocessor choices as elaboration-time configuration.",
-                "Do not infer ready/valid transfers or protocol behavior from signal "
-                "names; use the exact RTL control condition.",
-                "State exact cycle counts only when counter load, decrement, zero "
-                "detection, and transition behavior establish them; otherwise use TBD.",
-            )
+            else ()
         )
         return (
             "## OUTPUT FORMAT (two standalone Markdown files per module)",

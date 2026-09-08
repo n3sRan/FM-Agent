@@ -16,6 +16,7 @@ _SUBMODULE_HEADING_RE = re.compile(
     re.MULTILINE,
 )
 _LEAF_MARKER_RE = re.compile(r"^\s*\(no submodules\)\s*$", re.IGNORECASE | re.MULTILINE)
+_VERILOG_MARKDOWN_MIN_BYTES = 200
 
 
 def _read_markdown(path: Path) -> tuple[str | None, str | None]:
@@ -26,6 +27,25 @@ def _read_markdown(path: Path) -> tuple[str | None, str | None]:
     if not text.strip():
         return None, f"hardware artifact is empty: {path}"
     return text, None
+
+
+def _validate_verilog_markdown_readiness(text: str, path: Path, *, allow_small_leaf: bool = False) -> list[str]:
+    """Preserve the legacy Verilog anti-stub readiness contract."""
+    errors: list[str] = []
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        return [f"cannot stat hardware artifact {path}: {exc}"]
+
+    small_leaf = allow_small_leaf and "(no submodules)" in text
+    if size < _VERILOG_MARKDOWN_MIN_BYTES and not small_leaf:
+        errors.append(
+            f"{path.name}: artifact is only {size} bytes; expected at least "
+            f"{_VERILOG_MARKDOWN_MIN_BYTES} bytes"
+        )
+    if "#" not in text:
+        errors.append(f"{path.name}: artifact contains no Markdown heading")
+    return errors
 
 
 def validate_coverage_tree(text: str, path: Path) -> list[str]:
@@ -196,8 +216,9 @@ def find_dependency_section(
 class HardwareArtifactValidator:
     """Callable Profile validator shared by both hardware dialects."""
 
-    def __init__(self, *, dependency_coverage_is_blocking: bool) -> None:
+    def __init__(self, *, dependency_coverage_is_blocking: bool, enforce_verilog_readiness: bool = False) -> None:
         self.dependency_coverage_is_blocking = dependency_coverage_is_blocking
+        self.enforce_verilog_readiness = enforce_verilog_readiness
 
     def __call__(
         self,
@@ -210,12 +231,22 @@ class HardwareArtifactValidator:
         if spec_read_error:
             errors.append(spec_read_error)
         elif spec_text is not None:
+            if self.enforce_verilog_readiness:
+                errors.extend(_validate_verilog_markdown_readiness(spec_text, validation_input.self_spec))
             errors.extend(validate_coverage_tree(spec_text, validation_input.self_spec))
 
         info_text, info_read_error = _read_markdown(validation_input.dependency_info)
         if info_read_error:
             errors.append(info_read_error)
         elif info_text is not None:
+            if self.enforce_verilog_readiness:
+                errors.extend(
+                    _validate_verilog_markdown_readiness(
+                        info_text,
+                        validation_input.dependency_info,
+                        allow_small_leaf=not validation_input.expected_dependencies,
+                    )
+                )
             errors.extend(validate_dependency_info(info_text, validation_input.dependency_info))
             missing_dependencies = [
                 dependency
@@ -245,6 +276,7 @@ CHISEL_VALIDATOR = HardwareArtifactValidator(
 )
 VERILOG_VALIDATOR = HardwareArtifactValidator(
     dependency_coverage_is_blocking=True,
+    enforce_verilog_readiness=True,
 )
 
 

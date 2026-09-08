@@ -194,6 +194,10 @@ def _first_descendant(node: object, tag: str) -> dict | None:
     return None
 
 
+def _has_descendant(node: object, tag: str) -> bool:
+    return _first_descendant(node, tag) is not None
+
+
 def _first_identifier(node: object) -> tuple[str | None, str | None]:
     if not isinstance(node, dict):
         return None, None
@@ -421,13 +425,11 @@ def _extracted_modules(proj_dir: str | Path) -> tuple[VerilogUnit, ...]:
     return tuple(modules)
 
 
-def _verible_instantiations(
-    text: str,
+def _walk_verible_instantiations(
+    tree: object,
     known_names: set[str],
-) -> set[str] | None:
-    tree = _run_verible_tree(text)
-    if tree is None or not _top_level_modules(tree):
-        return None
+) -> set[str]:
+    """Collect known module types instantiated in a recognized Verible tree."""
     found = set()
 
     def walk(node: object) -> None:
@@ -437,7 +439,10 @@ def _verible_instantiations(
             return
         if not isinstance(node, dict):
             return
-        if node.get("tag") == "kInstantiationBase":
+        if (
+            node.get("tag") == "kInstantiationBase"
+            and _has_descendant(node, "kGateInstance")
+        ):
             instantiation_type = _first_descendant(node, "kInstantiationType")
             _tag, name = _first_identifier(instantiation_type)
             if name in known_names:
@@ -446,10 +451,49 @@ def _verible_instantiations(
             walk(child)
 
     walk(tree)
-    # A non-empty result demonstrates that the expected Verible tags are still
-    # valid. For an empty result, use the stable scanner so partial tag drift
-    # cannot silently erase real instance edges.
-    return found or None
+    return found
+
+
+_EDGE_CANARY_RESULT: bool | None = None
+_EDGE_CANARY_TEXT = (
+    "module __fm_canary(input a);\n"
+    "  __fm_dep u0(a);\n"
+    "endmodule\n"
+)
+
+
+def _verible_edge_walker_works() -> bool:
+    """Check once that this Verible version exposes the expected edge tags."""
+    global _EDGE_CANARY_RESULT
+    if _EDGE_CANARY_RESULT is None:
+        tree = _run_verible_tree(_EDGE_CANARY_TEXT)
+        if tree is None or not _top_level_modules(tree):
+            # The caller already falls back when Verible itself is unusable.
+            # Do not cache that transient condition as schema drift.
+            return True
+        _EDGE_CANARY_RESULT = bool(
+            _walk_verible_instantiations(tree, {"__fm_dep"})
+        )
+        if not _EDGE_CANARY_RESULT:
+            logging.warning(
+                "Verible parses input but its instantiation CST tags are not "
+                "recognized; using the source fallback for edge detection."
+            )
+    return _EDGE_CANARY_RESULT
+
+
+def _verible_instantiations(
+    text: str,
+    known_names: set[str],
+) -> set[str] | None:
+    tree = _run_verible_tree(text)
+    if tree is None or not _top_level_modules(tree):
+        return None
+    if not _verible_edge_walker_works():
+        return None
+    # Once the canary proves that the CST schema is understood, an empty set is
+    # authoritative: a real leaf module must not be second-guessed by regex.
+    return _walk_verible_instantiations(tree, known_names)
 
 
 def _source_instantiations(text: str, known_names: set[str]) -> set[str]:
@@ -485,16 +529,7 @@ def call_edges(proj_dir: str) -> dict[str, set[str]]:
     for caller_fqn, caller in units_with_fqns:
         for reference in _instantiated_names(caller.source, known_names):
             candidates = by_name[reference]
-            if len(candidates) != 1:
-                logging.warning(
-                    "Skipping ambiguous Verilog module reference %s from %s; "
-                    "candidates: %s",
-                    reference,
-                    caller_fqn,
-                    ", ".join(sorted(fqn for fqn, _unit in candidates)),
-                )
-                continue
-            callee_fqn = candidates[0][0]
-            if callee_fqn != caller_fqn:
-                edges[caller_fqn].add(callee_fqn)
+            for callee_fqn, _callee in candidates:
+                if callee_fqn != caller_fqn:
+                    edges[caller_fqn].add(callee_fqn)
     return dict(edges)

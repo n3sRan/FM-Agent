@@ -1,158 +1,214 @@
-# Verilog/SystemVerilog Module Specification Rules
+## Verilog/SystemVerilog Module Spec and Info Generation Rules
 
-Write two standalone English Markdown documents beside every extracted
-Verilog/SystemVerilog module source. Never modify the extracted source or the
-original project source.
+You are writing two standalone Markdown documents for each Verilog/SystemVerilog hardware module. The input may include Verilog/SystemVerilog source code, or caller context. The original source code is NOT modified.
 
-- `<ExtractedStem>_spec.md` defines the intended observable contract of that
-  extracted hardware module.
-- `<ExtractedStem>_info.md` defines what the module requires each direct
-  instantiated module to guarantee.
+For each module, write both files next to the extracted module file:
 
-Use the exact extracted filename stem for both artifact names. The extracted
-stem can differ from the declared module name when declarations were
-canonicalized or deduplicated.
+- `<ModuleName>_spec.md`: the verification-oriented specification, using the section form defined under "Mandatory Output Files" below.
+- `<ModuleName>_info.md`: the EXPECTED specification of each submodule that `<ModuleName>` instantiates or directly depends on, one entry per submodule, each entry using the SAME section structure as `<ModuleName>_spec.md`. This is the standalone counterpart of the `[INFO]` callee-expectation block used for software codebases: it records what `<ModuleName>` needs each submodule to guarantee, derived from how `<ModuleName>` drives and consumes it.
 
-## Behavioral boundary
+Read these rules carefully before writing either file.
 
-- Describe what the elaborated RTL guarantees, not a line-by-line account of
-  assignments, procedural blocks, continuous assignments, or generate code.
-- Treat preprocessor macros, parameter overrides, package configuration, and
-  `generate` conditions as compile/elaboration-time choices. Describe their
-  observable effect on ports, widths, capacity, topology, timing, or supported
-  features; do not present them as runtime clocked behavior.
-- Preserve exact declared module, parameter, port, interface, struct field, and
-  direct dependency names.
-- Record every observable port with its direction, packed/unpacked width or
-  type, signedness when relevant, and protocol meaning. Expand
-  verification-relevant interfaces, modports, arrays, structs, unions, enums,
-  and nested fields when the source establishes them.
-- Distinguish combinational behavior from edge-triggered sequential behavior.
-  Cover clock/reset domains, reset polarity and kind, state transitions,
-  transaction boundaries, ordering, backpressure, arbitration, latency,
-  throughput, and error behavior when observable and established.
-- Do not infer behavior from signal naming alone. Do not invent ports, widths,
-  signedness, reset values, submodules, cycle relationships, or protocol rules.
-  Mark genuinely unresolved facts as `TBD`.
-- A ready/valid-style name does not establish a transfer condition. Check the
-  exact control expression before claiming that a handshake accepts, rejects,
-  buffers, or drops data.
-- Derive exact cycle counts only after accounting for counter-load, decrement,
-  zero-detection, transition, and nonblocking-assignment cycles. A loaded value
-  such as `N-1` is not by itself proof of an `N-1` cycle interval. Use `TBD`
-  instead of an unverified formula.
-- State whether a runtime configuration input is latched once or read again at
-  later state transitions. Do not silently treat a live input as frame-stable.
-- Describe intended correct behavior. When the source diverges from that
-  contract, identify the source divergence as an implementation risk; do not
-  mix the intended rule and the observed divergent behavior into contradictory
-  guarantees.
-- Use precise, falsifiable English. Avoid claims such as "properly",
-  "correctly handles", "appropriate", or "as expected" unless the exact
-  condition and observable result are stated.
-- Cite relevant project-relative source locations and line numbers when they
-  are available.
+---
 
-## `<ExtractedStem>_spec.md`
+### Rule 1: Describe WHAT the DUT guarantees, not HOW it is implemented
 
-Use this top-level structure. A section that does not apply must say `None`,
-`N/A`, or `TBD`; do not silently omit required information.
+Describe the observable behavior and verification contract of the module under test (DUT). Frame specs in terms of module parameters, port/interface contracts, state/data invariants, protocol contracts, output contracts, timing (pipeline latency in cycles), and reset behavior.
+
+### Rule 2: Match the required spec form
+
+Use the Markdown structure and terminology shown below. Keep all required headings. If a section does not apply, write `None`, `TBD`, or `N/A`; do not delete the heading.
+
+### Rule 3: Specs describe INTENDED CORRECT behavior
+
+The implementation may have bugs. Neither file documents a bug as intended behavior: both `<ModuleName>_spec.md` and the submodule entries in `<ModuleName>_info.md` define the contract an ideal correct implementation must satisfy. If the code fails to satisfy what the surrounding hardware needs, the spec still describes what is needed — the gap IS the bug.
+
+### Rule 4: Cite source locations
+
+Use `path/to/File.sv:line-line` tags as location clues. Paths should be relative to the analyzed project root when possible. These tags do not replace the prose contract.
+
+### Rule 5: No vague claims
+
+Do not use vague claims such as "properly", "correctly handles", "reasonable", "normal", "appropriate", or "as expected" unless the sentence also states a falsifiable condition.
+
+### Rule 6: English only
+
+Write both output files entirely in English. Even when the domain context files, source comments, or identifiers contain another language (e.g. Chinese), translate that content into English — never copy non-English text into the output files.
+
+---
+
+## Mandatory Output Files
+
+### `<ModuleName>_spec.md`
+
+Write the main spec as a standalone Markdown document with exactly this top-level structure:
 
 ```markdown
-# <DeclaredModuleName> Specification Document
+# <ModuleName> Specification Document
+
+> This document describes the specification of the `<ModuleName>` chip verification target. Keep the technical language precise, well-organized, and easy to reuse for verification. If an item does not exist, explicitly write "None" or "TBD"; do not delete the section.
+
+## Introduction
+- **Design Background**: The module's position in the design, upstream/downstream modules.
+- **Design Goals**: The functions the module is responsible for.
+
+## Terms and Abbreviations in RTL Code
+
+| Abbreviation | Full Term | Description |
+| ---- | ---- | ---- |
+| <abbr> | <full term> | <meaning> |
+
+## RTL Source Files
+
+Briefly describe the files under the directory.
+
+File list:
+- path/to/File.sv: one sentence description
+
+## Top-Level Interface Overview
+- **Module Name**: `<ModuleName>`
+- **Port List**:
+
+  | Signal Name | Direction | Width/Type | Reset Value | Description |
+  | ------ | ---- | -------- | ------ | ---- |
+  | clk | input | 1 | N/A | Clock signal |
+  | rst_n | input | 1 | N/A | Active-low reset signal |
+  | <signal> | <input/output/inout> | <bit width or packed type> | <reset value or N/A> | <semantics> |
+
+- **Clock and Reset Requirements**: Clock domain, synchronous/asynchronous reset, reset polarity, observable reset values.
+- **External Dependencies**: Assumptions about upstream/downstream interfaces, handshakes, ordering, pipeline latency, and response matching.
+
+## Functional Description
+
+Decompose the overall functionality into several functional groups. Use a `###` heading for each functional group, including an overview, execution flow, boundaries and exceptions, and performance and constraints. Every functional group MUST contain at least one function point, written as a `####` subsection. A function point names a single, verifiable behavior of the group; it is the unit that downstream coverage testing targets. Never leave a functional group without at least one function point.
+
+### Coverage Tags
+
+Every functional group, function point, and check point MUST carry an explicit coverage tag so the downstream checker tool can parse them. The tag format is strict:
+
+- Functional group: `<FG-{group-name}>` placed on its own line immediately after the `###` group heading.
+- Function point: `<FC-{function-name}>` placed on its own line immediately after the `####` function-point heading.
+- Check point: `<CK-{check-point-name}>` placed at the start of each check-point bullet.
+
+Tag placement rules:
+- A `<FG-...>`/`<FC-...>` tag is on its own line, separated from the heading and the following prose by blank lines. Do NOT append a tag to the heading line itself.
+- `{group-name}`, `{function-name}`, and `{check-point-name}` are short uppercase identifiers (words joined by `-`), e.g. `FG-ARITHMETIC`, `FC-ADD`, `CK-OVERFLOW`.
+- The tags form a tree: sibling nodes under the same parent MUST NOT share the same name (two function points in one group cannot both be `<FC-ADD>`; check-point names need only be unique within their function point).
+- A check point is referenced by joining the tags with `/`, e.g. `FG-ARITHMETIC/FC-ADD/CK-OVERFLOW`.
+
+The spec MUST include a `<FG-API>` functional group: the test-API group covering the standard APIs needed to verify the DUT (drivers, reference-model hooks, monitors). Include it in addition to the behavioral functional groups.
+
+### <Functional Group Name>
+
+<FG-{GROUP-NAME}>
+
+- **Overview**: The channels, transactions, capacity, and bit width this functional group covers.
+- **Execution Flow**: Trigger condition -> state/data effect -> output obligation; describe rules rather than restating the source line by line.
+- **Boundaries and Exceptions**: Handling rules for conflicts, backpressure, flush, replay, timeout, and erroneous inputs.
+- **Performance and Constraints**: Concurrency, pipeline latency, and timing constraints.
+
+#### <Function Point Name>
+
+<FC-{FUNCTION-NAME}>
+
+A function point describes one fine-grained, verifiable behavior of the functional group (also called a test point). State its behavioral contract precisely: trigger condition, the data/state effect, and the observable output obligation. Add one `####` function point per distinct behavior, and ensure each functional group has at least one.
+
+Every function point MUST list at least one check point (also called a test bin) under a `**Check points:**` line, with one bullet per check point. A check point is a concrete, falsifiable scenario that verifies part of the function point — e.g. a normal case, a boundary, an overflow, an error condition, or a reset case. Keep check points independent from one another, with no cross-coverage of the same condition. Never leave a function point without at least one check point.
+
+**Check points:**
+- <CK-{CHECK-POINT-NAME-1}> Check point 1: the specific condition exercised and the expected observable result.
+- <CK-{CHECK-POINT-NAME-2}> Check point 2: another distinct, falsifiable scenario.
+
+### Subcomponent Description
+
+#### Component <SubmoduleName>
+<Observable behavior this DUT relies on the subcomponent to provide.> Only when `<SubmoduleName>` is itself being specced in this run (its own extracted source file is present and a `<SubmoduleName>_spec.md` will be written) add: For details, refer to the document `<SubmoduleName>_spec.md`. Otherwise describe the relied-upon behavior inline here and do NOT link to a `_spec.md` that will not exist. Never write meta-commentary about the spec-generation process itself (e.g. "this submodule is not specced in this run", "no `_spec.md` is generated"); the document describes the hardware contract only.
+
+### State Machines and Timing
+- **State Machine List**: List architecturally visible states and their observable meaning.
+- **State Transition Conditions**: Trigger condition -> next state.
+- **Key Timing**: Pipeline stages, fixed latency in cycles, counter thresholds, and cycle relationships.
+
+### Configuration Registers and Storage
+| Register Name/Address | Access Attribute | Bit Field | Default | Description | Read/Write Side Effects |
+| ------------- | -------- | ---- | ------ | ---- | ---------- |
+| <name> | <internal/MMIO> | <bit range> | <default> | <observable meaning> | <update/clear conditions> |
+
+- **Register Map Base Address**: Bus interface and base address; if none, write "No direct bus interface".
+- **Configuration Flow**: Reset values and the effect of runtime configuration on observable behavior.
+
+### Reset and Error Handling
+- **Reset Behavior**: Observable state after reset (and reset polarity).
+- **Error Reporting**: Signals or states for timeout, retry, mismatch, and faults.
+- **Self-Recovery Strategy**: retry/replay/drain/clear behavior and its boundaries.
+
+### Parameterization and Configurable Features
+- **Module Parameters**:
+
+  | Parameter Name | Type/Range | Default | Functional Effect |
+  | ------ | ------------- | ------ | -------- |
+  | <param> | <type/range> | <instantiated value> | <observable effect> |
+
+- **Runtime Configuration**: ...
+- **Compile Macros/Generation Options**: `define macros, generate blocks, ...
+
+## Verification Requirements and Coverage Suggestions
+- **Functional Coverage Points**: Checkable scenarios.
+- **Constraints and Assumptions**: Input timing and protocol assumptions the testbench must satisfy.
+- **Test Interfaces**: Driver, reference model, monitor, and assertion interfaces.
+```
+
+### `<ModuleName>_info.md`
+
+Write the expected submodule specifications as a separate Markdown document. A "submodule" is a hardware unit `<ModuleName>` instantiates (e.g. `sub_type u_inst (...)`) or directly depends on (e.g. a `struct`/`interface` type it exchanges on its ports). Each submodule entry is CALLER-DRIVEN: describe what `<ModuleName>` requires the submodule to guarantee, derived from how `<ModuleName>` instantiates, drives, and consumes it — not from the submodule's own implementation. Use the SAME section structure as `<ModuleName>_spec.md` for every entry; write `TBD` for items `<ModuleName>`'s usage does not constrain.
+
+```markdown
+# <ModuleName> Submodule Expected Specifications
+
+> This document records the specification that `<ModuleName>` expects from each submodule it instantiates or directly depends on. It does not describe `<ModuleName>` itself. Each entry uses the same section structure as a `_spec.md` document.
+
+# Submodule: <SubmoduleName>
 
 ## Introduction
 ## Terms and Abbreviations in RTL Code
 ## RTL Source Files
 ## Top-Level Interface Overview
 ## Functional Description
-## Subcomponent Description
-## State Machines and Timing
-## Configuration Registers and Storage
-## Reset and Error Handling
-## Parameterization and Configurable Features
+### <Functional Group Name>
+### Subcomponent Description
+### State Machines and Timing
+### Configuration Registers and Storage
+### Reset and Error Handling
+### Parameterization and Configurable Features
 ## Verification Requirements and Coverage Suggestions
+
+# Submodule: <AnotherSubmoduleName>
+
+<same section structure as above>
 ```
 
-The interface overview must identify the declared module and every observable
-port, including exact direction, width/type, signedness, and clock/reset
-semantics. The parameterization section must separate parameters, macros, and
-generate-time choices from runtime configuration. State/timing sections must
-state trigger, state/data effect, sampling edge or combinational condition, and
-observable result rather than transcribing RTL statements.
+Start each entry with a `# Submodule: <SubmoduleName>` heading, where `<SubmoduleName>` is the exact instantiated module name (the module type, not the instance label), so downstream tooling can locate the entry for each submodule. If `<ModuleName>` has no submodules, write `(no submodules)` under the introductory blockquote and end the document.
 
-### Coverage tree
+---
 
-Organize all observable behavior as a machine-checkable FG/FC/CK tree:
+## Content Requirements
 
-- Each functional group has a `###` heading followed by an `<FG-NAME>` tag on
-  its own line.
-- Each group contains at least one function point with a `####` heading followed
-  by an `<FC-NAME>` tag on its own line.
-- Each function point contains at least one check-point bullet carrying a
-  `<CK-NAME>` tag.
-- Names use only uppercase letters, digits, and dashes. Functional-group names
-  are document-unique, function-point names are unique within their group, and
-  check-point names are unique within their function point.
-- Every function point states a falsifiable trigger, state/data effect, and
-  observable result, including cycle relationships only when established.
-- Include an `<FG-API>` group covering the drivers, monitors, reference-model
-  observations, clock/reset control, and assertions needed to verify the
-  module's interfaces.
+- Include all top-level DUT ports in the spec. Preserve exact signal names from the RTL.
+- Expand important packed/unpacked arrays, `struct`/`interface` signals, and nested fields into readable rows when relevant for verification.
+- Include every module `parameter` that changes interface width, capacity, supported transaction count, timing, or protocol behavior.
+- Verification goals must be checkable and falsifiable.
+- The info file entries must reflect what the parent module relies on, so a submodule spec written later can be checked against them.
 
-Example shape:
+## Quick Reference
 
-```markdown
-### Interface API
-
-<FG-API>
-
-#### Request handshake
-
-<FC-REQUEST-HANDSHAKE>
-
-**Check points:**
-- <CK-BACKPRESSURE> When request valid is held while ready is low, no transfer
-  occurs and request information remains stable as required by the interface.
-```
-
-## `<ExtractedStem>_info.md`
-
-This document is caller-driven: derive each entry from how the parent connects,
-drives, samples, and depends on the child, not from a summary of the child's own
-implementation.
-
-Start every known direct module dependency with exactly:
-
-```markdown
-# Submodule: <ExactDeclaredName>
-```
-
-Under the heading, state the ports, parameter assumptions, timing, reset,
-protocol, ordering, and data guarantees the parent requires. Use the exact
-declared module type, not an instance label, interface type, package name,
-filename, or file-qualified graph identifier. Include each direct module type
-once even when several instances or a generate loop instantiate it.
-
-Verilog dependency coverage is blocking: every direct module dependency
-provided in the batch context must have a non-empty matching entry. Do not omit
-a dependency merely because its implementation is external, encrypted, or not
-part of this run; describe the caller-visible requirement supported by the
-parent source and use `TBD` for facts the parent does not constrain.
-
-If the module has no known direct submodules, write the exact marker
-`(no submodules)` and do not add a `# Submodule:` entry. Never combine the leaf
-marker with submodule entries, and never invent a dependency.
-
-## Final checks
-
-Before finishing each module, confirm that:
-
-1. Both sibling Markdown artifacts exist and the extracted source is unchanged.
-2. The spec contains `<FG-API>` and every FG contains an FC with at least one CK.
-3. Module, parameter, port, width/type, clock/reset, and protocol claims are
-   supported by source or domain context.
-4. Every known direct instantiated module type has one non-empty
-   `# Submodule:` entry, or the module is explicitly marked `(no submodules)`.
-5. Repeated instances are folded into one module-type dependency contract.
-6. Both documents are entirely in English.
+| Do | Do Not |
+| :--- | :--- |
+| Write both `<ModuleName>_spec.md` and `<ModuleName>_info.md` | Modify the `.v`/`.sv` source |
+| Keep the spec in the required section form | Document an implementation bug as intended behavior |
+| Give every functional group at least one `####` function point | Leave a functional group with no function point |
+| Give every function point at least one check point under `**Check points:**` | Leave a function point with no check point |
+| Tag every group/point/check point with `<FG-...>`/`<FC-...>`/`<CK-...>` and include the `<FG-API>` group | Omit a coverage tag, append a tag to a heading line, or reuse a sibling name |
+| Describe public ports, protocol, timing, reset, and data relationships | Restate source assignments line by line |
+| Cite relevant source locations with `path/to/File.sv:line-line` tags | Invent ports or rename signals |
+| In the info file, write one expected spec per submodule in the same section form | Describe `<ModuleName>` itself in the info file |
+| Write everything in English, translating non-English source/context | Copy Chinese or other non-English text into output files |
