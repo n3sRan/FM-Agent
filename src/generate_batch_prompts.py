@@ -4,14 +4,16 @@ import argparse
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Tuple
 
 try:
     # When imported as part of the src package (e.g. incremental_reasoner).
     from .domain_knowledge import list_staged_domain_knowledge_relpaths
+    from .language_mapping import extension_language_map
     from .specification import BatchPromptContext, SOFTWARE_PROFILE, SpecificationProfile
 except ImportError:
     # When run directly from the source tree, package modules sit beside this script.
+    from language_mapping import extension_language_map
     from specification import BatchPromptContext, SOFTWARE_PROFILE, SpecificationProfile
 
     def list_staged_domain_knowledge_relpaths(work_dir, prefix="fm_agent"):
@@ -54,32 +56,6 @@ COMMENT_PREFIX_BY_LANG = {
     "erlang": "%",
     "prolog": "%",
 }
-
-
-def extension_language_map(
-    languages: Sequence[str],
-    file_extensions: Sequence[str],
-) -> dict[str, str]:
-    """Map phase-plan extensions to languages without silent truncation.
-
-    A single configured language may own multiple extensions, such as Chisel
-    owning scala and sc or Verilog owning v, sv and svh. When more than one
-    language is configured, retain positional mapping but reject ambiguity.
-    """
-    normalized_extensions = [
-        extension.lower().lstrip(".") for extension in file_extensions
-    ]
-    if len(languages) == 1:
-        return {
-            extension: languages[0]
-            for extension in normalized_extensions
-        }
-    if len(languages) > 1 and len(languages) != len(normalized_extensions):
-        raise ValueError(
-            "phases.json languages and file_extensions must have equal lengths "
-            "when more than one language is configured"
-        )
-    return dict(zip(normalized_extensions, languages))
 
 
 def parse_args() -> argparse.Namespace:

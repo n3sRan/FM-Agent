@@ -27,6 +27,7 @@ from .file_utils import (
 )
 from .opencode_trace import run_opencode_traced
 from .llm_client import build_llm_cli_command
+from .language_mapping import extension_language_map
 from .domain_knowledge import (
     format_domain_knowledge_bullets,
     list_staged_domain_knowledge_relpaths,
@@ -634,11 +635,20 @@ def _phase_plan_schema_errors(phases_path):
     if not isinstance(data, dict):
         return ["the top-level value must be an object"]
 
+    errors = []
+    try:
+        extension_language_map(
+            data.get("languages"),
+            data.get("file_extensions"),
+        )
+    except ValueError as exc:
+        errors.append(str(exc))
+
     phases = data.get("phases")
     if not isinstance(phases, list):
-        return ['top-level field "phases" must be an array']
+        errors.append('top-level field "phases" must be an array')
+        return errors
 
-    errors = []
     for phase_index, phase in enumerate(phases):
         phase_path = f"phases[{phase_index}]"
         if not isinstance(phase, dict):
